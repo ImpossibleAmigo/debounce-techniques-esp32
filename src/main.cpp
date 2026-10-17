@@ -1,48 +1,78 @@
 #include <Arduino.h>
 
 #define BUTTON_PIN 4
-#define DEBOUNCE_DELAY_MS 20 // 20 мс зазвичай достатньо, щоб брязкіт вщух
+#define POLLING_INTERVAL_MS 5  // Опитуємо кожні 5 мс
+#define DEBOUNCE_CHECKS 4      // 4 перевірки * 5 мс = 20 мс стабільного сигналу
 
-volatile bool eventTriggered = false;
+// Перелік можливих станів нашої машини
+enum ButtonState {
+    RELEASED,           // Відпущено (стабільний стан)
+    DEBOUNCE_PRESS,     // Потенційне натискання (йде перевірка)
+    PRESSED,            // Натиснуто (стабільний стан)
+    DEBOUNCE_RELEASE    // Потенційне відпускання (йде перевірка)
+};
 
+ButtonState currentState = RELEASED;
+
+unsigned long lastPollTime = 0;
+int checkCounter = 0;
 int validCounter = 0;
-unsigned long debounceStartTime = 0;
-bool isDebouncing = false;
-
-// ISR лише сигналізує про подію
-void IRAM_ATTR buttonISR() {
-    eventTriggered = true;
-}
 
 void setup() {
     Serial.begin(115200);
     pinMode(BUTTON_PIN, INPUT);
-    
-    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, FALLING);
-    
-    Serial.println("Систему запущено. Завдання 3: State-based debounce.");
+    Serial.println("Систему запущено. Завдання 4: Polling + State Machine.");
 }
 
 void loop() {
-    // 1. Ловимо подію від ISR і починаємо відлік, якщо ми ще не в процесі перевірки
-    if (eventTriggered && !isDebouncing) {
-        eventTriggered = false; 
-        isDebouncing = true; 
-        debounceStartTime = millis(); 
-    }
-
-    // 2. Якщо йде перевірка і час (20 мс) вже пройшов
-    if (isDebouncing && (millis() - debounceStartTime >= DEBOUNCE_DELAY_MS)) {
-        isDebouncing = false; // Завершуємо очікування
-        eventTriggered = false; // Очищаємо всі хибні прапорці, що нападали за ці 20 мс
+    unsigned long currentTime = millis();
+    
+    // Виконуємо код лише раз на 5 мс
+    if (currentTime - lastPollTime >= POLLING_INTERVAL_MS) {
+        lastPollTime = currentTime;
         
-        // 3. ПЕРЕВІРКА РІВНЯ: чи кнопка ДОСІ натиснута (LOW)?
-        if (digitalRead(BUTTON_PIN) == LOW) {
-            validCounter++;
-            Serial.printf("Кнопку натиснуто! Валідний лічильник: %d\n", validCounter);
-        } else {
-            // Це був брязкіт або відпускання. Ми нічого не робимо.
-            // Serial.println("-> Подію проігноровано (рівень HIGH)");
+        // Зчитуємо фізичний рівень на піні
+        bool currentLevel = digitalRead(BUTTON_PIN);
+        
+        // Машина станів
+        switch (currentState) {
+            case RELEASED:
+                if (currentLevel == LOW) { // Почалося натискання
+                    currentState = DEBOUNCE_PRESS;
+                    checkCounter = 1;
+                }
+                break;
+                
+            case DEBOUNCE_PRESS:
+                if (currentLevel == LOW) {
+                    checkCounter++;
+                    if (checkCounter >= DEBOUNCE_CHECKS) { // Сигнал стабільний 20 мс
+                        currentState = PRESSED;
+                        validCounter++;
+                        Serial.printf("Кнопку натиснуто! Валідний лічильник: %d\n", validCounter);
+                    }
+                } else {
+                    currentState = RELEASED; // Сигнал зник - це був брязкіт
+                }
+                break;
+                
+            case PRESSED:
+                if (currentLevel == HIGH) { // Почалося відпускання
+                    currentState = DEBOUNCE_RELEASE;
+                    checkCounter = 1;
+                }
+                break;
+                
+            case DEBOUNCE_RELEASE:
+                if (currentLevel == HIGH) {
+                    checkCounter++;
+                    if (checkCounter >= DEBOUNCE_CHECKS) { // Сигнал стабільний 20 мс
+                        currentState = RELEASED;
+                    }
+                } else {
+                    currentState = PRESSED; // Сигнал зник - брязкіт при відпусканні
+                }
+                break;
         }
     }
 }
