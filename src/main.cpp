@@ -1,40 +1,42 @@
 #include <Arduino.h>
 
-// Використовуємо пін 4, як домовлялися
 #define BUTTON_PIN 4 
+#define DEBOUNCE_DELAY_MS 50 // Затримка антибрязкоту в мілісекундах
 
-// volatile вказує компілятору, що ці змінні можуть змінюватися в перериванні
-volatile int isrCounter = 0; 
 volatile bool eventTriggered = false;
 
-// Функція переривання (ISR)
-// IRAM_ATTR завантажує функцію в оперативну пам'ять (RAM) для максимальної швидкості
+int validCounter = 0; // Лічильник успішних (відфільтрованих) натискань
+unsigned long lastDebounceTime = 0; // Час останнього успішного натискання
+
+// ISR тепер робить мінімум роботи
 void IRAM_ATTR buttonISR() {
-    isrCounter++;           // Інкрементуємо лічильник
-    eventTriggered = true;  // Сигналізуємо, що відбулася подія
+    eventTriggered = true; 
 }
 
 void setup() {
     Serial.begin(115200);
-    
-    // Зовнішній резистор вже є, тому просто INPUT
     pinMode(BUTTON_PIN, INPUT); 
     
-    // Налаштовуємо переривання на спад напруги (відпускання -> натискання)
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, FALLING);
     
-    Serial.println("Систему запущено. Завдання 1: Базова реалізація (без debounce).");
+    Serial.println("Систему запущено. Завдання 2: Time-based debounce (поза ISR).");
 }
 
 void loop() {
-    // Виводити лог всередині самої функції переривання (ISR) - це погана практика, 
-    // яка може призвести до паніки ядра (Kernel Panic). 
-    // Тому ми логуємо дані в основному циклі за допомогою прапорця.
     if (eventTriggered) {
-        // Одразу скидаємо прапорець
-        eventTriggered = false; 
+        eventTriggered = false; // Одразу скидаємо прапорець
         
-        // Виводимо лічильник у лог
-        Serial.printf("Кнопку натиснуто! Лічильник: %d\n", isrCounter);
+        unsigned long currentTime = millis(); // Фіксуємо поточний час
+        
+        // Якщо з моменту попереднього натискання пройшло більше 50 мс
+        if (currentTime - lastDebounceTime >= DEBOUNCE_DELAY_MS) {
+            lastDebounceTime = currentTime; // Оновлюємо таймер
+            validCounter++;
+            
+            Serial.printf("Кнопку натиснуто! Валідний лічильник: %d\n", validCounter);
+        } else {
+            // Тут ми ігноруємо брязкіт (час < 50 мс)
+            // Serial.println("-> Відфільтровано брязкіт"); // Розкоментуйте, щоб побачити як це працює
+        }
     }
 }
