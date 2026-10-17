@@ -2,7 +2,7 @@
 
 #define BUTTON_PIN 4
 #define POLLING_INTERVAL_MS 5  // Опитуємо кожні 5 мс
-#define DEBOUNCE_CHECKS 4      // 4 перевірки * 5 мс = 20 мс стабільного сигналу
+#define DEBOUNCE_CHECKS 10      // 10 перевірок * 5 мс = 50 мс стабільного сигналу
 
 // Перелік можливих станів нашої машини
 enum ButtonState {
